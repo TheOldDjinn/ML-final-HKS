@@ -1,0 +1,432 @@
+Collaboration: This assignment was completed in collaboration with Parthu Kalva and Bahjat Mansour
+
+```{r}
+install.packages("dplyr")
+install.packages("magrittr")
+install.packages("caret")
+install.packages("mlbench")
+install.packages("glmnet")
+install.packages("devtools")
+install.packages("psych")
+install.packages("pls")
+
+library(dplyr)
+library(magrittr)
+library(caret)
+library(mlbench)
+library(glmnet)
+library(devtools)
+library(psych)
+library(pls)
+```
+
+?missForest
+
+library(randomForest)
+set.seed(222)
+
+```{r}
+# Cleaning data
+getwd()
+setwd("/Users/Ben/Desktop/ML Course Competition/")
+training     <- read.csv("training.csv",
+                              header = TRUE)
+dim(water_data)
+
+water_data <- training
+
+water_data <- within (water_data, rm(id, recorded_by, public_meeting, permit, payment, quantity_group, region_code, district_code, ward, lga, year_recorded)) 
+dim(water_data)
+```
+
+```{r}
+water_data$population[water_data$population == 0] = 300
+```
+
+```{r}
+sapply(water_data, function(x) sum(is.na(x))) 
+water_na <- rowSums(is.na(water_data))
+length(water_na[water_na > 0])
+```
+
+```{r}
+water_data<- na.omit(water_data)
+```
+
+```{r}
+# converting logical  variables to numeric variables
+water_data %<>% mutate_if(is.integer,as.numeric)
+```
+
+```{r}
+water_data$status_group<- as.numeric(water_data$status_group) -1
+names(which(sapply(water_data,class)=="numeric"))
+```
+
+```{r}
+# Train
+ for (i in ncol(water_data):1) {
+    if (is.factor(water_data[,i])) {
+      for (j in unique(water_data[,i])) {
+        new_col             <- paste(colnames(water_data)[i], j, sep = "_")
+        water_data[,new_col] <- as.numeric(water_data[,i] == j) 
+      }
+      water_data       <- water_data[,-i]     
+    } 
+  }
+dim(water_data)
+```
+
+```{r}
+which(colnames(water_data)=="status_group")
+```
+
+```{r}
+# Variance Train
+count = 0
+for (col_num in 1:ncol(water_data)) {
+  if (var(water_data[,col_num]) < 0.05) {
+     count = count + 1
+    }
+}
+
+count
+
+for (col_num in ncol(water_data):1) {
+  if (var(water_data[,col_num]) < 0.05) {
+     water_data       <- water_data[,-col_num]
+     }
+  }
+```
+
+```{r}
+# Correlation
+set.seed(222)
+
+correlationMatrix <- cor(water_data[,-17])
+
+print(correlationMatrix)
+```
+
+```{r}
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.5, name = TRUE)
+
+print(highlyCorrelated)
+
+water_train_noCorr <- water_data[, -which(names(water_data) %in% c(highlyCorrelated))]
+
+print(colnames(water_train_noCorr)) %in% c(highlyCorrelated)
+
+water_train_noCorr$status_group <- as.factor(water_train_noCorr$status_group)
+```
+
+
+```{r}
+dropCols <- c('region_Morogoro', 'region_Kilimanjaro', 'region_Mbeya', 'basin_Lake Nyasa', 'waterpoint_type_communal standpipe multiple',
+             'extraction_type_group_nira/tanira' , 'payment_type_per bucket' , 'basin_Wami / Ruvu' ,  
+             'basin_Ruvuma / Southern Coast' , 'extraction_type_swn 80' , 'source_machine dbh' , 'basin_Lake Tanganyika', 
+             'payment_type_never pay', 'payment_type_on failure')
+train_data <- dplyr::select(water_train_noCorr, -dropCols)
+```
+
+```{r}
+test_data     <- read.csv("test.csv",
+                              header = TRUE)
+```
+
+```{r}
+test_data %<>% mutate_if(is.logical,as.numeric)
+test_data %<>% mutate_if(is.integer,as.numeric)
+ for (i in ncol(test_data):1) {
+    if (is.factor(test_data[,i])) {
+      for (j in unique(test_data[,i])) {
+        new_col             <- paste(colnames(test_data)[i], j, sep = "_")
+        test_data[,new_col] <- as.numeric(test_data[,i] == j) 
+      }
+      test_data       <- test_data[,-i]     
+    } 
+  }
+dim(test_data)
+```
+
+```{r}
+keepCols <- c('id', colnames(train_data))
+keepCols <- keepCols[keepCols != 'status_group']
+test_data <- dplyr::select(test_data, one_of(keepCols))
+rm(keepCols)
+dim(test_data)
+```
+
+```{r}
+
+# msep_func <- function(predictions, true_vals) {
+#  MSEP    <- mean((predictions - true_vals)^2)
+#  return(MSEP)
+# }
+
+library(MASS)
+
+water_pred <- train_data
+  
+set.seed(222)
+
+water_train         <- sample(seq(nrow(water_pred )),
+                                round(nrow(water_pred ) * 0.8))
+water_train         <- sort(water_train)
+water_test          <- which(!(seq(nrow(water_pred)) %in% water_train))
+
+library(randomForest)
+set.seed(222)
+
+# train_data$status_group <- as.factor(train_data$status_group)
+# levels(train_data$status_group) <- c("functional", "functional needs repair", "non functional")
+
+bag.water <- randomForest(status_group~., data = data.frame(train_data[-water_test,]), 
+                           mtry=13, importance =TRUE)
+bag.water$importance
+```
+
+```{r}
+## VarImPlot ()
+water.test <- water_pred[-water_train ,"status_group"]
+
+```
+
+```{r}
+##  predictions 
+   
+   yhat.bag <- predict (bag.water , newdata= water_pred[-water_train ,])
+   print(yhat.bag)
+      
+```
+
+```{r}
+varImpPlot (bag.water)
+```
+
+```{r}
+set.seed(222)
+  
+ bag.water <- randomForest(status_group~., data=data.frame(water_pred), mtry=13, importance =TRUE)
+ bag.water$importance
+```
+
+```{r}
+   yhat.bag_test <- predict (bag.water , newdata= data.frame(test_data))
+   print(yhat.bag_test)
+```
+
+```{r}
+id_vector <- test_data$id
+test_data <- dplyr::select(test_data, -id)
+
+output <- as.data.frame(id_vector)
+names(output) <- c('id')
+
+write.csv(output, file="ballard_prediction.csv", sep=",", row.names=FALSE, col.names=TRUE)
+```
+
+```{r}
+write.csv(yhat.bag_test, "ballard_prediction.csv")
+
+yhat.bag_test <- factor(yhat.bag_test, levels = c(0,1,2))
+```
+
+################# Notes #########################
+
+```{r}
+# PCR
+set.seed(222)
+
+train               <- sample(seq(nrow(water_data)),
+                              floor(nrow(water_data) * 0.8))
+train               <- sort(train)
+test                <- which(!(seq(nrow(water_data)) %in% train))
+
+pcr_fit           <- pcr(status_group~., data = water_data[train,], 
+                         scale = TRUE, validation = "CV")
+
+for (col_num in 1:ncol(water_data)) {
+  if (var(water_data[,col_num]) < 0.05) {
+    print(colnames(water_data)[col_num])
+    print(var(water_data[,col_num]))
+  }
+}
+
+for (col_num in ncol(water_data):1) {
+  if (var(water_data[,col_num]) < 0.05) {
+    water_data       <- water_data[,-col_num]
+  }
+}
+
+set.seed(222)
+pcr_fit           <- pcr(status_group~., data = water_data[train,], 
+                         scale = TRUE, validation = "CV")
+summary(pcr_fit)
+
+pcr_msep          <- MSEP(pcr_fit)
+pcr_min_indx      <- which.min(pcr_msep$val[1,1,])
+print(pcr_min_indx)
+
+print(pcr_msep$val[1,1,])
+
+# 67 comps
+
+# validationplot(pcr_fit)
+
+pcr_pred          <- predict(pcr_fit, water_data[test,],
+                             ncomp = 67)
+
+pcr_test_MSE      <- mean((pcr_pred - water_data[test,"status_group"])^2)
+print(pcr_test_MSE)
+
+# 0.5943687
+
+print(sqrt(pcr_test_MSE))
+
+# RMSE = 0.7709531
+```
+
+```{r}
+# PCR on Test
+pcr_fit           <- pcr(status_group~., data = water_data, 
+                         scale = TRUE, validation = "CV")
+
+for (col_num in 1:ncol(water_data)) {
+  if (var(water_data[,col_num]) < 0.05) {
+    print(colnames(water_data)[col_num])
+    print(var(water_data[,col_num]))
+  }
+}
+
+for (col_num in ncol(water_data):1) {
+  if (var(water_data[,col_num]) < 0.05) {
+    water_data       <- water_data[,-col_num]
+  }
+}
+
+
+set.seed(222)
+pcr_fit           <- pcr(status_group~., data = water_data, 
+                         scale = TRUE, validation = "CV")
+summary(pcr_fit)
+
+pcr_msep          <- MSEP(pcr_fit)
+pcr_min_indx      <- which.min(pcr_msep$val[1,1,])
+print(pcr_min_indx)
+
+print(pcr_msep$val[1,1,])
+
+# 67 comps
+
+# validationplot(pcr_fit)
+
+pcr_pred          <- predict(pcr_fit, water_data_test,
+                             ncomp = 67)
+
+pcr_test_MSE      <- mean((pcr_pred - water_data$status_group)^2)
+print(pcr_test_MSE)
+
+# 0.5943687
+
+print(sqrt(pcr_test_MSE))
+
+# RMSE = 0.7709531
+```
+
+```{r}
+# PLS
+pls_fit           <- plsr(status_group~., data = water_data[train,], 
+                          scale = TRUE, validation = "CV")
+summary(pls_fit)
+
+pls_msep          <- MSEP(pls_fit)
+pls_min_indx      <- which.min(pls_msep$val[1,1,])
+print(pls_min_indx)
+
+# 52 comps
+
+validationplot(pls_fit, val.type = c("RMSEP"))
+
+pls_rmsep         <- RMSEP(pls_fit)
+print(pls_rmsep$val[1,1,as.numeric(pls_min_indx)])
+
+# pls_rmsep = 0.7756561
+
+pls_pred          <- predict(pls_fit, water_data[water_test,],
+                             ncomp = (as.numeric(pls_min_indx) -1))
+
+pls_test_MSE      <- mean((pls_pred - water_data[water_test,"status_group"])^2)
+print(pls_test_MSE)
+print(sqrt(pls_test_MSE))
+
+# pls_test_MSE = 0.6021232
+# pls_test_MSE)^2 = 0.775966
+```
+
+```{r}
+# Lasso
+set.seed(222)
+
+for (col_num in 1:ncol(water_data)) {
+  if (var(water_data[,col_num]) < 0.05) {
+    print(colnames(water_data)[col_num])
+    print(var(water_data[,col_num]))
+  }
+}
+
+for (col_num in ncol(water_data):1) {
+  if (var(water_data[,col_num]) < 0.05) {
+    water_data       <- water_data[,-col_num]
+  }
+}
+
+lasso_ins       <- cv.glmnet(x = as.matrix(water_data[,1:92]),
+                             y = as.numeric(water_data[,93]),
+                             alpha = 1, standardize = T)
+
+
+## We can see which lambda sequence was uesd
+
+print(lasso_ins$lambda)
+
+## And we can see how the cross-validation error varied by lambda
+
+print(round(lasso_ins$cvm,4))
+print(lasso_ins$lambda.min)
+
+# lambda.min = 0.008767376
+```
+
+```{r}
+# Training Data
+set.seed(222)
+water_train               <- sample(seq(nrow(water_train_noCorr)),
+                              round(nrow(water_train_noCorr) * 0.8))
+water_train               <- sort(water_train)
+water_test                <- which(!(seq(nrow(water_train_noCorr)) %in%
+                                       water_train))
+```
+
+```{r}
+## Boosting
+library (gbm)
+set.seed(222)
+
+boost.water <- gbm(status_group~., data=data.frame(water_data[-water_test,]), 
+                    distribution= "gaussian", n.trees=5000, interaction.depth=4)
+
+summary(boost.water)  
+
+yhat.boost <- predict (boost.water , newdata=water_data[-train ,], n.trees=5000)
+mean((yhat.boost -water.test)^2)
+```
+
+```{r}
+# rf
+rf.water <- randomForest(medv~., data=data.frame(water_data[-water_test,]), 
+                          importance =TRUE, n.trees=5000)
+
+yhat.rf <- predict (rf.water , newdata=water_data[-train ,])
+mean((yhat.rf -water.test)^2)
+```
