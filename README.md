@@ -1,5 +1,3 @@
-# ML-final-HKS
-
 ## Final Project for Harvard Kennedy School Machine Learning Course
 
 ###### Created in collaboration with Danny Tobin, Tabinda Siddiqi, Cornelius von Lenthe, Bahjat Mansour, and Parthu Kalva
